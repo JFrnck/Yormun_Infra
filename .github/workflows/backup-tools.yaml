@@ -1,0 +1,58 @@
+name: backup-tools image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docker/backup-tools/**"
+      - "scripts/backup/**"
+      - ".github/workflows/backup-tools.yaml"
+  pull_request:
+    paths:
+      - "docker/backup-tools/**"
+      - "scripts/backup/**"
+
+env:
+  IMAGE: ghcr.io/jfrnck/yormun-backup-tools
+  # Bump manual al cambiar el Dockerfile (ver docker/backup-tools/README.md).
+  IMAGE_TAG: v1
+
+jobs:
+  build:
+    name: Build (y push en main)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login a GHCR
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build
+        if: github.event_name == 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/backup-tools/Dockerfile
+          push: false
+          tags: ${{ env.IMAGE }}:${{ env.IMAGE_TAG }}
+
+      - name: Build y push
+        if: github.event_name == 'push'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/backup-tools/Dockerfile
+          push: true
+          tags: ${{ env.IMAGE }}:${{ env.IMAGE_TAG }}
+          platforms: linux/arm64

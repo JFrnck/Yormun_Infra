@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# Mock de rclone para tests: simula el bucket R2 como un directorio local
+# ($MOCK_RCLONE_ROOT). Solo implementa los subcomandos que common.sh usa.
+set -euo pipefail
+
+root="${MOCK_RCLONE_ROOT:?MOCK_RCLONE_ROOT no está seteado}"
+mkdir -p "${root}"
+
+# Descarta --config <path> y flags de retry/timeout: el mock no los necesita.
+args=()
+skip_next=0
+for arg in "$@"; do
+  if [[ "${skip_next}" -eq 1 ]]; then
+    skip_next=0
+    continue
+  fi
+  case "${arg}" in
+    --config) skip_next=1 ;;
+    --retries|--low-level-retries|--contimeout|--timeout) skip_next=1 ;;
+    *) args+=("${arg}") ;;
+  esac
+done
+
+strip_remote() {
+  # "r2:bucket/path/to/obj" -> "path/to/obj"
+  sed -E 's#^r2:[^/]+/##'
+}
+
+cmd="${args[0]}"
+case "${cmd}" in
+  rcat)
+    target="$(strip_remote <<< "${args[1]}")"
+    mkdir -p "${root}/$(dirname "${target}")"
+    cat > "${root}/${target}"
+    ;;
+  lsf)
+    prefix="$(strip_remote <<< "${args[1]}")"
+    if [[ -d "${root}/${prefix}" ]]; then
+      if ! (cd "${root}/${prefix}" && find . -maxdepth 1 -type f -printf '%f\n') 2>/dev/null; then
+        (cd "${root}/${prefix}" && find . -maxdepth 1 -type f -exec basename {} \;)
+      fi
+    fi
+    ;;
+  deletefile)
+    target="$(strip_remote <<< "${args[1]}")"
+    rm -f "${root}/${target}"
+    ;;
+  copyto)
+    src="$(strip_remote <<< "${args[1]}")"
+    dest="${args[2]}"
+    cp "${root}/${src}" "${dest}"
+    ;;
+  *)
+    echo "mock-rclone: comando no soportado: ${cmd}" >&2
+    exit 1
+    ;;
+esac

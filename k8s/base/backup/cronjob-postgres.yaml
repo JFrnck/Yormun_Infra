@@ -1,0 +1,77 @@
+# pg_dump | age | rclone, diario 03:00 (BLUEPRINT 3.5). Streaming puro:
+# el dump nunca toca disco sin cifrar (ver dump-postgres.sh).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: backup-postgres
+  namespace: yormun
+spec:
+  schedule: "0 3 * * *"
+  timeZone: America/Lima
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 600
+      template:
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            runAsUser: 10001
+            runAsGroup: 10001
+            runAsNonRoot: true
+          containers:
+            - name: backup-postgres
+              image: ghcr.io/jfrnck/yormun-backup-tools:v1
+              command: ["bash", "/scripts/dump-postgres.sh"]
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+              env:
+                - name: PGHOST
+                  value: postgres.yormun.svc.cluster.local
+                - name: PGUSER
+                  value: yormun
+                - name: PGDATABASE
+                  value: yormun
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: postgres-credentials
+                      key: password
+                - name: AGE_RECIPIENT_PUBLIC_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: age-backup-key
+                      key: public-key
+                - name: R2_ACCOUNT_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: r2-credentials
+                      key: account-id
+                - name: R2_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: r2-credentials
+                      key: access-key-id
+                - name: R2_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: r2-credentials
+                      key: secret-access-key
+                - name: R2_BUCKET
+                  valueFrom:
+                    secretKeyRef:
+                      name: r2-credentials
+                      key: bucket
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi

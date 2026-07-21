@@ -1,0 +1,11 @@
+# Los scripts vienen horneados en la imagen ghcr.io/jfrnck/yormun-backup-tools
+# (docker/backup-tools/Dockerfile) — no hay ConfigMap de scripts.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - core-data-pvc.yaml
+  - cronjob-postgres.yaml
+  - cronjob-redis.yaml
+  - cronjob-memory.yaml
+  - cronjob-verify-restore.yaml

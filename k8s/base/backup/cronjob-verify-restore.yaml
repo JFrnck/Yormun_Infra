@@ -1,0 +1,85 @@
+# Prueba de restore mensual (BLUEPRINT 3.5, regla de oro #3). Día 1 de cada
+# mes a las 04:00 (después de que corran los 3 backups diarios). Es el único
+# workload que monta la llave PRIVADA de age (age-backup-key/private-key),
+# y solo como archivo — nunca como variable de entorno.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: verify-restore
+  namespace: yormun
+spec:
+  schedule: "0 4 1 * *"
+  timeZone: America/Lima
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 6
+  failedJobsHistoryLimit: 6
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 900
+      template:
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            runAsNonRoot: true
+          containers:
+            - name: verify-restore
+              image: ghcr.io/jfrnck/yormun-backup-tools:v1
+              command: ["bash", "/scripts/verify-restore.sh"]
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+              env:
+                - name: SCRATCH_DIR
+                  value: /scratch
+                - name: AGE_IDENTITY_PATH
+                  value: /run/secrets/age/identity
+                - name: R2_ACCOUNT_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: r2-credentials
+                      key: account-id
+                - name: R2_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: r2-credentials
+                      key: access-key-id
+                - name: R2_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: r2-credentials
+                      key: secret-access-key
+                - name: R2_BUCKET
+                  valueFrom:
+                    secretKeyRef:
+                      name: r2-credentials
+                      key: bucket
+              resources:
+                requests:
+                  cpu: 200m
+                  memory: 256Mi
+                limits:
+                  cpu: 800m
+                  memory: 512Mi
+              volumeMounts:
+                - name: age-identity
+                  mountPath: /run/secrets/age
+                  readOnly: true
+                - name: scratch
+                  mountPath: /scratch
+          volumes:
+            - name: age-identity
+              secret:
+                secretName: age-backup-key
+                defaultMode: 0400
+                items:
+                  - key: private-key
+                    path: identity
+            - name: scratch
+              emptyDir:
+                sizeLimit: 1Gi

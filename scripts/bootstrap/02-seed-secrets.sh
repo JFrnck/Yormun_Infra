@@ -11,7 +11,17 @@
 #   CLOUDFLARE_API_TOKEN       token con Zone.DNS Edit en ambas zonas
 #   CLOUDFLARED_TUNNEL_TOKEN   token del túnel (Zero Trust → Tunnels)
 #   GRAFANA_ADMIN_PASSWORD     password admin de Grafana
+#   AGE_PUBLIC_KEY             `age-keygen` — cifra los backups (no sensible)
+#   AGE_PRIVATE_KEY            `age-keygen` — descifra en verify-restore
+#   R2_ACCOUNT_ID              ID de cuenta de Cloudflare (para el endpoint R2)
+#   R2_ACCESS_KEY_ID           API token de R2 (scoped al bucket de backups)
+#   R2_SECRET_ACCESS_KEY       secret del API token de R2
+#
+# Opcional:
+#   R2_BUCKET                  default "yormun-backups" (BLUEPRINT 3.6)
 set -euo pipefail
+
+: "${R2_BUCKET:=yormun-backups}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
@@ -23,6 +33,11 @@ required_vars=(
   CLOUDFLARE_API_TOKEN
   CLOUDFLARED_TUNNEL_TOKEN
   GRAFANA_ADMIN_PASSWORD
+  AGE_PUBLIC_KEY
+  AGE_PRIVATE_KEY
+  R2_ACCOUNT_ID
+  R2_ACCESS_KEY_ID
+  R2_SECRET_ACCESS_KEY
 )
 missing=0
 for var in "${required_vars[@]}"; do
@@ -73,6 +88,16 @@ apply_secret cert-manager cloudflare-api-token \
 apply_secret observability grafana-admin \
   "user=admin" \
   "password=${GRAFANA_ADMIN_PASSWORD}"
+
+apply_secret yormun age-backup-key \
+  "public-key=${AGE_PUBLIC_KEY}" \
+  "private-key=${AGE_PRIVATE_KEY}"
+
+apply_secret yormun r2-credentials \
+  "account-id=${R2_ACCOUNT_ID}" \
+  "access-key-id=${R2_ACCESS_KEY_ID}" \
+  "secret-access-key=${R2_SECRET_ACCESS_KEY}" \
+  "bucket=${R2_BUCKET}"
 
 echo ">> Listo. Guarda las credenciales en tu llavero (Bitwarden/1Password)."
 echo ">> Recuerda: rotación trimestral obligatoria (BLUEPRINT 11)."
