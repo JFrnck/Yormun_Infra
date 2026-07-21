@@ -1,0 +1,10 @@
+# Config de kube-linter para CI (AGENTS.md 4.4: resources obligatorios —
+# los checks default unset-cpu-requirements/unset-memory-requirements lo
+# imponen). Exclusión única:
+# - no-read-only-root-fs: Postgres/Redis/Grafana/Infisical escriben en su
+#   filesystem; el aislamiento real viene de runAsNonRoot + drop ALL +
+#   NetworkPolicies. Excepciones puntuales (promtail hostPath) van como
+#   anotación en el manifest con justificación.
+checks:
+  exclude:
+    - "no-read-only-root-fs"

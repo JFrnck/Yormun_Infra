@@ -1,0 +1,74 @@
+# Aislamiento del namespace yormun (BLUEPRINT 4.3):
+# recibe de kube-system (Traefik) e intra-namespace; puede iniciar tráfico a
+# yormun-executor y a internet, pero JAMÁS a agents-sandbox.
+# CIDRs excluidos = pod/service CIDRs por defecto de K3s (10.42/16, 10.43/16);
+# ajustar si el bootstrap los cambia.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: yormun
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-intra-namespace
+  namespace: yormun
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-from-kube-system
+  namespace: yormun
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: egress-allowlist
+  namespace: yormun
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    # Intra-namespace (core → Postgres/Redis/Infisical).
+    - to:
+        - podSelector: {}
+    # kube-system: DNS (CoreDNS) y Traefik (cloudflared publica hacia él).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+    # Executor: única ruta autorizada hacia ejecución de código.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: yormun-executor
+    # Internet (APIs LLM, Cloudflare, Google...), nunca pods/services de
+    # otros namespaces: los CIDRs del clúster quedan excluidos.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.42.0.0/16
+              - 10.43.0.0/16

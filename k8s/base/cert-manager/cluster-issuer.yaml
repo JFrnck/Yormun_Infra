@@ -1,0 +1,19 @@
+# DNS-01 obligatorio para wildcards (BLUEPRINT 5.3). El API token de
+# Cloudflare vive en el Secret cloudflare-api-token (ns cert-manager),
+# creado por el bootstrap — permisos mínimos: Zone.DNS Edit en ambas zonas.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-dns01
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: jeanfranckqv@gmail.com
+    privateKeySecretRef:
+      name: letsencrypt-account-key
+    solvers:
+      - dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: cloudflare-api-token
+              key: api-token

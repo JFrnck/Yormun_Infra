@@ -1,0 +1,25 @@
+# TLS con el wildcard de yormun.com emitido por cert-manager en este
+# namespace. Cloudflare Access protege este hostname además del login
+# de Grafana (se configura en Zero Trust — ver runbook, paso 7).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: grafana
+  namespace: observability
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - grafana.yormun.com
+      secretName: wildcard-yormun-com-tls
+  rules:
+    - host: grafana.yormun.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: grafana
+                port:
+                  name: http

@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: infisical
+  namespace: yormun
+  labels:
+    app.kubernetes.io/name: infisical
+spec:
+  selector:
+    app.kubernetes.io/name: infisical
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

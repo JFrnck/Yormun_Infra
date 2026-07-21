@@ -1,0 +1,68 @@
+# Infisical self-hosted (BLUEPRINT 11). Usa la DB `infisical` del Postgres
+# del clúster y el Redis compartido — el presupuesto (256/512Mi) no da para
+# instancias propias. Sus credenciales llegan por el Secret infisical-secrets
+# (seed en bootstrap). UI solo interna: acceso por port-forward (ver runbook).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: infisical
+  namespace: yormun
+  labels:
+    app.kubernetes.io/name: infisical
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: infisical
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: infisical
+    spec:
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+      containers:
+        - name: infisical
+          image: docker.io/infisical/infisical:v0.99.0-postgres
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          envFrom:
+            - secretRef:
+                name: infisical-secrets
+          env:
+            - name: SITE_URL
+              value: http://infisical.yormun.svc.cluster.local:8080
+            - name: TELEMETRY_ENABLED
+              value: "false"
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /api/status
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/status
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 256Mi
+            limits:
+              cpu: 200m
+              memory: 512Mi

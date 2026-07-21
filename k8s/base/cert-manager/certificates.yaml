@@ -1,0 +1,44 @@
+# Certificates wildcard por namespace consumidor: los Secrets TLS solo son
+# visibles en su namespace, así que cada namespace que termina TLS necesita
+# su propio Certificate. yormun.com = núcleo confiable; yormungander.com =
+# zona efímera de agentes (BLUEPRINT 5.2 — jamás mezclar contenidos).
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: wildcard-yormun-com
+  namespace: yormun
+spec:
+  secretName: wildcard-yormun-com-tls
+  issuerRef:
+    name: letsencrypt-dns01
+    kind: ClusterIssuer
+  dnsNames:
+    - "yormun.com"
+    - "*.yormun.com"
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: wildcard-yormungander-com
+  namespace: yormun
+spec:
+  secretName: wildcard-yormungander-com-tls
+  issuerRef:
+    name: letsencrypt-dns01
+    kind: ClusterIssuer
+  dnsNames:
+    - "yormungander.com"
+    - "*.yormungander.com"
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: wildcard-yormun-com
+  namespace: observability
+spec:
+  secretName: wildcard-yormun-com-tls
+  issuerRef:
+    name: letsencrypt-dns01
+    kind: ClusterIssuer
+  dnsNames:
+    - "*.yormun.com"
