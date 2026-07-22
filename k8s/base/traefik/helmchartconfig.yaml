@@ -1,0 +1,19 @@
+# Ajustes al Traefik bundled de K3s: resources del presupuesto 3.1.1 y
+# confianza en X-Forwarded-* solo desde pods del clúster (cloudflared).
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+    additionalArguments:
+      - "--entryPoints.web.forwardedHeaders.trustedIPs=10.42.0.0/16"
+      - "--entryPoints.websecure.forwardedHeaders.trustedIPs=10.42.0.0/16"

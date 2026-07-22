@@ -1,0 +1,29 @@
+# Namespaces según BLUEPRINT.md 4.3.
+# PSA: agents-sandbox corre código LLM-generado → "restricted".
+# observability queda sin enforce porque promtail necesita hostPath (/var/log/pods).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: yormun
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: yormun-executor
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agents-sandbox
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: observability

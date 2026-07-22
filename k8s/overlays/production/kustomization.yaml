@@ -1,0 +1,9 @@
+# Overlay de producción: hoy es la base tal cual (los pins de imagen ya
+# viven en base). Cambios específicos de producción (réplicas, hosts extra,
+# tuning) se parchean aquí — nunca editando base a mano para un solo entorno.
+# Este es el path que Flux reconcilia (scripts/bootstrap/05-flux-bootstrap.sh).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base

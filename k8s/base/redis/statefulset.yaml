@@ -1,0 +1,81 @@
+# Redis 7 con AOF (BLUEPRINT 3.4). Password vía Secret redis-credentials:
+# defensa en profundidad además de las NetworkPolicies.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  namespace: yormun
+  labels:
+    app.kubernetes.io/name: redis
+spec:
+  serviceName: redis
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redis
+    spec:
+      securityContext:
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        runAsNonRoot: true
+      containers:
+        - name: redis
+          image: docker.io/redis:7.4.9-alpine
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - sh
+            - -c
+            - exec redis-server --appendonly yes --requirepass "$REDIS_PASSWORD"
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-credentials
+                  key: password
+          ports:
+            - name: redis
+              containerPort: 6379
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - redis-cli --no-auth-warning -a "$REDIS_PASSWORD" ping | grep -q PONG
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - redis-cli --no-auth-warning -a "$REDIS_PASSWORD" ping | grep -q PONG
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 5Gi

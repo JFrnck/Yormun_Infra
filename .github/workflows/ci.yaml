@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  kube-lint:
+    name: Lint manifests (kustomize build + kube-linter)
+    runs-on: ubuntu-latest
+    env:
+      KUBE_LINTER_VERSION: v0.8.3
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Render overlay de producción
+        run: |
+          kubectl kustomize k8s/overlays/production > /tmp/rendered.yaml
+          echo "Documentos renderizados: $(grep -c '^kind:' /tmp/rendered.yaml)"
+
+      - name: Instalar kube-linter
+        run: |
+          curl -sSfL -o /tmp/kube-linter.tar.gz \
+            "https://github.com/stackrox/kube-linter/releases/download/${KUBE_LINTER_VERSION}/kube-linter-linux.tar.gz"
+          tar -xzf /tmp/kube-linter.tar.gz -C /tmp
+          chmod +x /tmp/kube-linter
+
+      - name: kube-linter
+        run: /tmp/kube-linter lint /tmp/rendered.yaml --config .kube-linter.yaml
+
+  shellcheck:
+    name: Shellcheck scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: shellcheck scripts/bootstrap/*.sh

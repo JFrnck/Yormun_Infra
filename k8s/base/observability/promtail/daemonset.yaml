@@ -1,0 +1,89 @@
+# promtail necesita leer /var/log/pods del host (por eso las excepciones
+# de kube-linter con justificación) y correr como root para acceder a esos
+# archivos. Es el único workload con hostPath en todo el clúster.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: promtail
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: promtail
+  annotations:
+    ignore-check.kube-linter.io/sensitive-host-mounts: >-
+      promtail requiere /var/log/pods (read-only) y /run/promtail para
+      posiciones; es su única función.
+    ignore-check.kube-linter.io/run-as-non-root: >-
+      los archivos de /var/log/pods son root-only en el host; promtail
+      corre como root con todas las capabilities dropeadas.
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: promtail
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: promtail
+    spec:
+      serviceAccountName: promtail
+      containers:
+        - name: promtail
+          image: docker.io/grafana/promtail:3.6.11
+          securityContext:
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          args:
+            - -config.file=/etc/promtail/promtail.yaml
+          env:
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          ports:
+            - name: http
+              containerPort: 3101
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/promtail
+              readOnly: true
+            - name: pods-logs
+              mountPath: /var/log/pods
+              readOnly: true
+            - name: positions
+              mountPath: /run/promtail
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      volumes:
+        - name: config
+          configMap:
+            name: promtail-config
+        - name: pods-logs
+          hostPath:
+            path: /var/log/pods
+        - name: positions
+          hostPath:
+            path: /run/promtail
+            type: DirectoryOrCreate

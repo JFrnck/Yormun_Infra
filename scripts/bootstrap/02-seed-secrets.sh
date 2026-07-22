@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# Crea los Secrets semilla que existen ANTES de que Infisical esté operativo
+# (huevo-gallina: Infisical corre dentro del clúster). Todo secreto posterior
+# vive en Infisical (AGENTS.md 5.2). Idempotente: re-ejecutable sin drama.
+#
+# Variables de entorno requeridas (NUNCA se logean sus valores):
+#   POSTGRES_PASSWORD          password del usuario yormun de Postgres
+#   REDIS_PASSWORD             requirepass de Redis
+#   INFISICAL_ENCRYPTION_KEY   hex de 16 bytes:  openssl rand -hex 16
+#   INFISICAL_AUTH_SECRET      base64 de 32 bytes: openssl rand -base64 32
+#   CLOUDFLARE_API_TOKEN       token con Zone.DNS Edit en ambas zonas
+#   CLOUDFLARED_TUNNEL_TOKEN   token del túnel (Zero Trust → Tunnels)
+#   GRAFANA_ADMIN_PASSWORD     password admin de Grafana
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
+required_vars=(
+  POSTGRES_PASSWORD
+  REDIS_PASSWORD
+  INFISICAL_ENCRYPTION_KEY
+  INFISICAL_AUTH_SECRET
+  CLOUDFLARE_API_TOKEN
+  CLOUDFLARED_TUNNEL_TOKEN
+  GRAFANA_ADMIN_PASSWORD
+)
+missing=0
+for var in "${required_vars[@]}"; do
+  if [[ -z "${!var:-}" ]]; then
+    echo "ERROR: falta la variable de entorno ${var}" >&2
+    missing=1
+  fi
+done
+[[ "${missing}" -eq 1 ]] && exit 1
+
+echo ">> Aplicando namespaces..."
+kubectl apply -k "${REPO_ROOT}/k8s/base/namespaces"
+kubectl create namespace cert-manager --dry-run=client -o yaml | kubectl apply -f -
+
+# apply_secret <namespace> <nombre> <key=value>...
+apply_secret() {
+  local ns="$1" name="$2"
+  shift 2
+  local args=()
+  local pair
+  for pair in "$@"; do
+    args+=("--from-literal=${pair}")
+  done
+  kubectl -n "${ns}" create secret generic "${name}" "${args[@]}" \
+    --dry-run=client -o yaml | kubectl apply -f -
+  echo "   Secret ${ns}/${name} aplicado."
+}
+
+echo ">> Creando Secrets semilla..."
+apply_secret yormun postgres-credentials \
+  "password=${POSTGRES_PASSWORD}"
+
+apply_secret yormun redis-credentials \
+  "password=${REDIS_PASSWORD}"
+
+apply_secret yormun infisical-secrets \
+  "ENCRYPTION_KEY=${INFISICAL_ENCRYPTION_KEY}" \
+  "AUTH_SECRET=${INFISICAL_AUTH_SECRET}" \
+  "DB_CONNECTION_URI=postgres://yormun:${POSTGRES_PASSWORD}@postgres.yormun.svc.cluster.local:5432/infisical?sslmode=disable" \
+  "REDIS_URL=redis://:${REDIS_PASSWORD}@redis.yormun.svc.cluster.local:6379"
+
+apply_secret yormun cloudflared-token \
+  "token=${CLOUDFLARED_TUNNEL_TOKEN}"
+
+apply_secret cert-manager cloudflare-api-token \
+  "api-token=${CLOUDFLARE_API_TOKEN}"
+
+apply_secret observability grafana-admin \
+  "user=admin" \
+  "password=${GRAFANA_ADMIN_PASSWORD}"
+
+echo ">> Listo. Guarda las credenciales en tu llavero (Bitwarden/1Password)."
+echo ">> Recuerda: rotación trimestral obligatoria (BLUEPRINT 11)."

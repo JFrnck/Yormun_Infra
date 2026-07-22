@@ -1,0 +1,9 @@
+# cert-manager (la app) se instala con el manifest oficial pinneado en el
+# bootstrap (scripts/bootstrap/04-apply-manifests.sh). Aquí solo viven
+# nuestros recursos: ClusterIssuer y Certificates wildcard.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - cluster-issuer.yaml
+  - certificates.yaml

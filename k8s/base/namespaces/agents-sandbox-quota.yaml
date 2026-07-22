@@ -1,0 +1,12 @@
+# Techo de ráfaga, no reserva: sin tareas corriendo el consumo es cero
+# (no hay warm pool — BLUEPRINT 3.1.1 y 4.4).
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: agents-sandbox-quota
+  namespace: agents-sandbox
+spec:
+  hard:
+    limits.cpu: "1500m"
+    limits.memory: 6Gi
+    pods: "10"
