@@ -1,0 +1,76 @@
+# SAVE + streaming del RDB vía redis-cli --rdb (BLUEPRINT 3.5), sin montar
+# el PVC de Redis. Diario 03:10 (10 min después de Postgres, para no
+# competir por el ancho de banda del túnel hacia R2).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: backup-redis
+  namespace: yormun
+spec:
+  schedule: "10 3 * * *"
+  timeZone: America/Lima
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 600
+      template:
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            runAsUser: 10001
+            runAsGroup: 10001
+            runAsNonRoot: true
+          containers:
+            - name: backup-redis
+              image: ghcr.io/jfrnck/yormun-backup-tools:v1
+              command: ["bash", "/scripts/dump-redis.sh"]
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+              env:
+                - name: REDIS_HOST
+                  value: redis.yormun.svc.cluster.local
+                - name: REDIS_PORT
+                  value: "6379"
+                - name: REDIS_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: redis-credentials
+                      key: password
+                - name: AGE_RECIPIENT_PUBLIC_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: age-backup-key
+                      key: public-key
+                - name: R2_ACCOUNT_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: r2-credentials
+                      key: account-id
+                - name: R2_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: r2-credentials
+                      key: access-key-id
+                - name: R2_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: r2-credentials
+                      key: secret-access-key
+                - name: R2_BUCKET
+                  valueFrom:
+                    secretKeyRef:
+                      name: r2-credentials
+                      key: bucket
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi

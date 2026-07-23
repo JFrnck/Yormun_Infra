@@ -11,3 +11,4 @@ resources:
   - cloudflared
   - traefik
   - observability
+  - backup

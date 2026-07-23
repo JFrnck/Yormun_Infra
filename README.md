@@ -1,6 +1,6 @@
 # Yormun_Infra
 
-Infraestructura de YORMUNGANDER: manifests Kustomize, scripts de bootstrap y (Fase 1.2) scripts de backup. Flux reconcilia `k8s/overlays/production` contra el clúster K3s.
+Infraestructura de YORMUNGANDER: manifests Kustomize, scripts de bootstrap y scripts de backup. Flux reconcilia `k8s/overlays/production` contra el clúster K3s.
 
 Documentación canónica en `../Yormun_Docs/` (BLUEPRINT, AGENTS, WORKFLOW). Este README es el **runbook de bootstrap**: de una VM Ubuntu 24.04 limpia a clúster operativo en <2 h.
 
@@ -18,10 +18,14 @@ k8s/
     cloudflared/       túnel Cloudflare (modo token)
     traefik/           HelmChartConfig del Traefik bundled de K3s
     observability/     Prometheus + Loki + promtail + Grafana (mínimos; Tempo/PgBouncer pospuestos)
+    backup/            PVC yormun-core-data + 4 CronJobs (Postgres, Redis, memory.db, verify-restore)
   overlays/
     production/        entrypoint que Flux reconcilia
 scripts/
   bootstrap/           pasos 01-06 del runbook
+  backup/              scripts de backup (horneados en la imagen backup-tools)
+docker/
+  backup-tools/        imagen con pg_dump/redis-cli/sqlite3/age/rclone + los scripts de backup
 ```
 
 Versiones de imágenes pinneadas en los manifests, verificadas contra Docker Hub/GitHub el 2026-07-20. Prohibido `latest`.
@@ -57,7 +61,7 @@ En el dashboard de Cloudflare:
 3. **DNS de cada zona**: si el wizard no los creó, añade CNAME `*` → `<tunnel-id>.cfargotunnel.com` (proxied) en `yormun.com` y en `yormungander.com`.
 4. **API token** (My Profile → API Tokens): permisos `Zone.DNS: Edit` **solo** sobre las dos zonas. Es para el DNS-01 de cert-manager.
 
-### 3. Secrets semilla (~10 min)
+### 3. Secrets semilla (~15 min)
 
 Infisical corre dentro del clúster, así que estos secretos iniciales se siembran a mano — es la única excepción a "todo en Infisical". Genera y exporta (y guarda en tu llavero):
 
@@ -69,6 +73,19 @@ export INFISICAL_AUTH_SECRET="$(openssl rand -base64 32)"
 export CLOUDFLARE_API_TOKEN="<token del paso 2.4>"
 export CLOUDFLARED_TUNNEL_TOKEN="<token del paso 2.1>"
 export GRAFANA_ADMIN_PASSWORD="$(openssl rand -base64 24)"
+
+# Para los backups cifrados (Fase 1.2, ver sección "Backups" más abajo):
+age-keygen -o /tmp/yormun-backup-key.txt
+export AGE_PUBLIC_KEY="$(grep '# public key:' /tmp/yormun-backup-key.txt | cut -d: -f2 | tr -d ' ')"
+export AGE_PRIVATE_KEY="$(grep AGE-SECRET-KEY /tmp/yormun-backup-key.txt)"
+# Guarda /tmp/yormun-backup-key.txt en tu llavero YA MISMO y luego bórralo:
+#   shred -u /tmp/yormun-backup-key.txt
+# Sin esa llave privada, ningún backup es recuperable — es la única copia
+# fuera del clúster (el clúster solo tiene ambas mitades en el Secret).
+
+export R2_ACCOUNT_ID="<Cloudflare dashboard → R2 → cuenta>"
+export R2_ACCESS_KEY_ID="<R2 → Manage API tokens → crear token scoped al bucket yormun-backups>"
+export R2_SECRET_ACCESS_KEY="<secret del token anterior>"
 
 ./scripts/bootstrap/02-seed-secrets.sh
 ```
@@ -110,12 +127,29 @@ Zero Trust → Access → Applications: crea una aplicación self-hosted para `g
 
 No hay warm pool: los pods de agentes se crean bajo demanda y la imagen cacheada da arranques de ~2-5 s. Re-ejecutar tras cada upgrade de imagen.
 
+## Backups (Fase 1.2)
+
+Cron diario (BLUEPRINT 3.5), streaming puro — el dump nunca toca disco sin cifrar:
+
+- **03:00** `backup-postgres` — `pg_dump --format=custom` contra `postgres.yormun.svc` → age → R2 (`postgres/YYYY-MM-DD.age`).
+- **03:10** `backup-redis` — `redis-cli --rdb -` (protocolo, sin montar el PVC de Redis) → age → R2.
+- **03:20** `backup-memory` — `sqlite3 memory.db ".backup"` desde la PVC `yormun-core-data` (solo-lectura). **Antes de la Fase 4** (cuando exista `src/memory/` en Yormun_Core) el archivo no existe todavía: el CronJob lo detecta y sale OK sin subir nada — no es un fallo, es orden temporal esperado.
+- **Día 1, 04:00** `verify-restore` — descarga el dump de Postgres más reciente, lo descifra (única pieza que usa la llave privada de age, montada como archivo, nunca como env var), levanta un Postgres efímero *dentro del mismo pod* (`initdb`/`pg_ctl`, sin tocar el Postgres real), restaura y valida. Notifica por Telegram (**stub** — la integración real llega en la Fase 2.4).
+
+**Retención:** 7 diarios + 4 semanales (domingo) + 3 mensuales (día 1), implementada en `scripts/backup/lib/common.sh::enforce_retention` y corrida tras cada upload exitoso.
+
+**Imagen:** ninguna imagen oficial trae `pg_dump` + `redis-cli` + `sqlite3` + `age` + `rclone` juntos, así que este repo construye la suya — `docker/backup-tools/` (Alpine 3.20, paquetes pinneados, build context = raíz del repo porque hornea `scripts/backup/` dentro de la imagen). CI propio en `.github/workflows/backup-tools.yaml`, publica en `ghcr.io/jfrnck/yormun-backup-tools:v1`. **Antes de que los CronJobs puedan correr, esa imagen debe existir en GHCR** — el primer push a `main` que toque `docker/backup-tools/**` la construye.
+
+**Volumen compartido:** `yormun-core-data` (PVC, namespace `yormun`) se declara en `k8s/base/backup/core-data-pvc.yaml` *antes* de que exista el Deployment de Yormun_Core. Cuando ese Deployment se cree (Fase 2/4), debe montar el mismo PVC en `/data/memory` — es el contrato entre este repo y el módulo `src/memory/` de Yormun_Core.
+
+**Tests:** `scripts/backup/test/*.bats` (cifrado age con detección de tampering, retención 7/4/3) corren en CI contra un `mock-rclone` que simula R2 como directorio local — no requieren credenciales reales. `bats scripts/backup/test/*.bats` para correrlos en local (requiere `age` instalado).
+
 ## Criterio de éxito de la Fase 1
 
 - `https://grafana.yormun.com` responde con TLS válido (wildcard de Let's Encrypt) detrás de Cloudflare Access, y su dashboard muestra métricas de K3s (datasource Prometheus).
 - `kubectl get certificate -A` muestra los tres certificados `READY=True`.
 - `kubectl get pods -A` sin CrashLoopBackOff.
-- Backups cifrados subiendo a R2 — llega en la **Fase 1.2** (`scripts/backup/`).
+- Backups cifrados subiendo a R2 (Fase 1.2) — verificable con `kubectl -n yormun get cronjob` y, tras la primera ejecución, `rclone lsf` contra el bucket.
 
 ## Notas de diseño
 
@@ -127,6 +161,6 @@ No hay warm pool: los pods de agentes se crean bajo demanda y la imagen cacheada
 
 ## Operación
 
-- Cambios de infra: PR a `main` de este repo → CI (kube-linter + shellcheck) → merge humano → Flux aplica.
-- CronJobs de backup y su verificación: Fase 1.2, `scripts/backup/` y `k8s/base/backup/`.
+- Cambios de infra: PR a `main` de este repo → CI (kube-linter + shellcheck + bats) → merge humano → Flux aplica.
+- Cambios a `docker/backup-tools/Dockerfile` o `scripts/backup/`: bump del tag en `IMAGE_TAG` (backup-tools.yaml) y en los 4 CronJobs, mismo PR.
 - Runbooks operativos (restore, VM perdida, rotación de tokens): `../Yormun_Docs/docs/runbooks/`.
