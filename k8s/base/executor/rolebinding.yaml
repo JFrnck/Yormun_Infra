@@ -1,0 +1,16 @@
+# El RoleBinding vive en agents-sandbox (mismo namespace que el Role),
+# apuntando a un ServiceAccount que vive en yormun-executor —
+# válido en Kubernetes: el subject declara su propio namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: executor-agents-sandbox
+  namespace: agents-sandbox
+subjects:
+  - kind: ServiceAccount
+    name: executor
+    namespace: yormun-executor
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: executor-agents-sandbox
