@@ -1,0 +1,23 @@
+# Role (no ClusterRole): permisos acotados al namespace agents-sandbox
+# únicamente, según BLUEPRINT 4.2 — "nada más, sin acceso a Secrets,
+# ConfigMaps, Deployments, ni otros namespaces".
+#
+# El permiso sobre networkpolicies (además de pods) es una extensión
+# necesaria más allá del texto literal de 4.2, documentada en
+# ADR 0003 punto 3: sin él, PodLifecycleService no puede crear la
+# NetworkPolicy por pod que exige AGENTS.md 5.5 cuando una tool
+# declare egressWhitelist no vacío (hoy ninguna lo hace — ver ADR 0003
+# punto 2, UnresolvedEgressWhitelistError). Sigue sin tocar Secrets,
+# ConfigMaps, Deployments ni otros namespaces.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: executor-agents-sandbox
+  namespace: agents-sandbox
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create", "get", "list", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["create", "delete"]

@@ -4,6 +4,7 @@ kind: Kustomization
 resources:
   - namespaces
   - network-policies
+  - executor
   - postgres
   - redis
   - infisical
